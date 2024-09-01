@@ -1,0 +1,14 @@
+services:
+  vapor-api:
+    build: 
+      context: .
+      dockerfile: ./docker/.Dockerfile
+    environment:
+      - API_HOST=0.0.0.0
+    ports: 
+      - "9675:8080"
+    volumes:
+      - type: bind
+        target: /app/data
+        source: ./src/data
+        

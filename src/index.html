@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Ask LLM</title>
+    <link rel="stylesheet" href="https://unpkg.com/98.css" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        .main-body {
+            margin: auto;
+            width: fit-content;
+            padding: 10px;
+        }
+
+        #loadingBarContainer {
+            width: 100%;
+            height: 15px;
+            background-color: #f0f0f0;
+            border-radius: 10px;
+            margin-bottom: 10px;
+            overflow: hidden;
+            margin-top: 10px;
+        }
+
+        #loadingBar {
+            width: 0;
+            height: 100%;
+            background-color: #4CAF50;
+            transition: width 0.1s ease-in-out;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="main-body">
+        <div class="window" style="width: 800px">
+            <div class="title-bar">
+                <div class="title-bar-text header-h3">
+                    Record Audio and Send
+                </div>
+            </div>
+            <div class="window-body">
+                <div class="window-body">
+                    <p style="font-size: larger;">
+                        <button id="recordButton">Record</button>
+                        <div id="loadingBarContainer">
+                            <div id="loadingBar"></div>
+                        </div>
+                        <div style="font-size: larger; margin-top: 1rem;display: none;" id="responseElement">
+                        </div>
+                        <div style="font-size: larger; margin-top: 1rem;display: none;" id="responseObjElement">
+                        </div>
+
+                        <audio controls id="audioElement" style="display:none;"></audio>
+                    </p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let isRecording = false;
+        let chunks = [];
+        let mediaRecorder;
+
+        const recordButton = document.getElementById('recordButton');
+        const audioElement = document.getElementById('audioElement');
+        const responseElement = document.getElementById('responseElement');
+        const responseObjElement = document.getElementById('responseObjElement');
+
+        recordButton.addEventListener('click', () => {
+            if (!isRecording) {
+                startAudioRecording();
+                recordButton.textContent = 'Stop';
+            } else {
+                stopAudioRecording();
+                recordButton.textContent = 'Record';
+            }
+        });
+
+        // index.js ---------------
+        // https://codepen.io/ralzohairi/pen/zYrKLWy
+
+
+        /** Starts the audio recording*/
+        function startAudioRecording() {
+
+            console.log("Recording Audio...");
+
+            //If a previous audio recording is playing, pause it
+            let recorderAudioIsPlaying = !audioElement.paused; // the paused property tells whether the media element is paused or not
+            console.log("paused?", !recorderAudioIsPlaying);
+            if (recorderAudioIsPlaying) { audioElement.pause(); }
+
+            //start recording using the audio recording API
+            audioRecorder.start()
+                .then(() => { //on success
+                    isRecording = true;
+                })
+                .catch(error => { //on error
+                    //No Browser Support Error
+                    if (error.message.includes("mediaDevices API or getUserMedia method is not supported in this browser.")) {
+                        console.log("To record audio, use browsers like Chrome and Firefox.");
+
+                    }
+
+                    //Error handling structure
+                    switch (error.name) {
+                        case 'AbortError': //error from navigator.mediaDevices.getUserMedia
+                            console.log("An AbortError has occured.");
+                            break;
+                        case 'NotAllowedError': //error from navigator.mediaDevices.getUserMedia
+                            console.log("A NotAllowedError has occured. User might have denied permission.");
+                            break;
+                        case 'NotFoundError': //error from navigator.mediaDevices.getUserMedia
+                            console.log("A NotFoundError has occured.");
+                            break;
+                        case 'NotReadableError': //error from navigator.mediaDevices.getUserMedia
+                            console.log("A NotReadableError has occured.");
+                            break;
+                        case 'SecurityError': //error from navigator.mediaDevices.getUserMedia or from the MediaRecorder.start
+                            console.log("A SecurityError has occured.");
+                            break;
+                        case 'TypeError': //error from navigator.mediaDevices.getUserMedia
+                            console.log("A TypeError has occured.");
+                            break;
+                        case 'InvalidStateError': //error from the MediaRecorder.start
+                            console.log("An InvalidStateError has occured.");
+                            break;
+                        case 'UnknownError': //error from the MediaRecorder.start
+                            console.log("An UnknownError has occured.");
+                            break;
+                        default:
+                            console.log("An error occured with the error name " + error.name);
+                    };
+                });
+        }
+
+        /** Stop the currently started audio recording & sends it
+        */
+        function stopAudioRecording() {
+
+            console.log("Stopping Audio Recording...");
+
+            //stop the recording using the audio recording API
+            audioRecorder.stop()
+                .then(audioAsblob => {
+                    // Send Base 64 Encoded Data
+                    const reader = new FileReader();
+                    reader.onloadend = function () {
+                        const base64Data = reader.result.split(',')[1];
+                        sendData(base64Data);
+                    };
+                    reader.readAsDataURL(audioAsblob);
+                    isRecording = false;
+                })
+                .catch(error => {
+                    //Error handling structure
+                    switch (error.name) {
+                        case 'InvalidStateError': //error from the MediaRecorder.stop
+                            console.log("An InvalidStateError has occured.");
+                            break;
+                        default:
+                            console.log("An error occured with the error name " + error.name);
+                    };
+                    console.log("Error place")
+                });
+        };
+
+        function sendData(base64Data) {
+            startLoading();
+
+            fetch('/speech-to-action', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ audio: base64Data })
+            })
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error('Network response was not ok');
+                    }
+                    return response.json();
+                })
+                .then(data => {
+
+                    // Text-to-Spech Reponse
+                    responseElement.innerHTML = "Respose: " + data.message;
+                    responseElement.style.display = null;
+
+                    // Parsed Response
+                    responseObjElement.innerHTML = "Obj: " + `<pre><code id="json">${JSON.stringify(data.action_result, null, 4)}</code></pre>`;
+                    responseObjElement.style.display = null;
+
+                    // Complete Loading Bar
+                    clearLoading();
+
+                })
+                .catch(error => {
+                    console.error('There was an error with the fetch request:', error);
+                    clearLoading();
+                });
+        }
+
+        // audio-recording.js ---------------
+        //API to handle audio recording 
+
+        var audioRecorder = {
+            /** Stores the recorded audio as Blob objects of audio data as the recording continues*/
+            audioBlobs: [],/*of type Blob[]*/
+            /** Stores the reference of the MediaRecorder instance that handles the MediaStream when recording starts*/
+            mediaRecorder: null, /*of type MediaRecorder*/
+            /** Stores the reference to the stream currently capturing the audio*/
+            streamBeingCaptured: null, /*of type MediaStream*/
+            /** Start recording the audio 
+             * @returns {Promise} - returns a promise that resolves if audio recording successfully started
+             */
+            start: function () {
+                //Feature Detection
+                if (!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia)) {
+                    //Feature is not supported in browser
+                    //return a custom error
+                    return Promise.reject(new Error('mediaDevices API or getUserMedia method is not supported in this browser.'));
+                }
+
+                else {
+                    //Feature is supported in browser
+
+                    //create an audio stream
+                    return navigator.mediaDevices.getUserMedia({ audio: true }/*of type MediaStreamConstraints*/)
+                        //returns a promise that resolves to the audio stream
+                        .then(stream /*of type MediaStream*/ => {
+
+                            //save the reference of the stream to be able to stop it when necessary
+                            audioRecorder.streamBeingCaptured = stream;
+
+                            //create a media recorder instance by passing that stream into the MediaRecorder constructor
+                            audioRecorder.mediaRecorder = new MediaRecorder(stream); /*the MediaRecorder interface of the MediaStream Recording
+                API provides functionality to easily record media*/
+
+                            //clear previously saved audio Blobs, if any
+                            audioRecorder.audioBlobs = [];
+
+                            //add a dataavailable event listener in order to store the audio data Blobs when recording
+                            audioRecorder.mediaRecorder.addEventListener("dataavailable", event => {
+                                //store audio Blob object
+                                audioRecorder.audioBlobs.push(event.data);
+                            });
+
+                            //start the recording by calling the start method on the media recorder
+                            audioRecorder.mediaRecorder.start();
+                        });
+
+                    /* errors are not handled in the API because if its handled and the promise is chained, the .then after the catch will be executed*/
+                }
+            },
+            /** Stop the started audio recording
+             * @returns {Promise} - returns a promise that resolves to the audio as a blob file
+             */
+            stop: function () {
+                //return a promise that would return the blob or URL of the recording
+                return new Promise(resolve => {
+                    //save audio type to pass to set the Blob type
+                    let mimeType = audioRecorder.mediaRecorder.mimeType;
+
+                    //listen to the stop event in order to create & return a single Blob object
+                    audioRecorder.mediaRecorder.addEventListener("stop", () => {
+                        //create a single blob object, as we might have gathered a few Blob objects that needs to be joined as one
+                        let audioBlob = new Blob(audioRecorder.audioBlobs, { type: mimeType });
+
+                        //resolve promise with the single audio blob representing the recorded audio
+                        resolve(audioBlob);
+                    });
+                    audioRecorder.cancel();
+                });
+            },
+            /** Cancel audio recording*/
+            cancel: function () {
+                //stop the recording feature
+                audioRecorder.mediaRecorder.stop();
+
+                //stop all the tracks on the active stream in order to stop the stream
+                audioRecorder.stopStream();
+
+                //reset API properties for next recording
+                audioRecorder.resetRecordingProperties();
+            },
+            /** Stop all the tracks on the active stream in order to stop the stream and remove
+             * the red flashing dot showing in the tab
+             */
+            stopStream: function () {
+                //stopping the capturing request by stopping all the tracks on the active stream
+                audioRecorder.streamBeingCaptured.getTracks() //get all tracks from the stream
+                    .forEach(track /*of type MediaStreamTrack*/ => track.stop()); //stop each one
+            },
+            /** Reset all the recording properties including the media recorder and stream being captured*/
+            resetRecordingProperties: function () {
+                audioRecorder.mediaRecorder = null;
+                audioRecorder.streamBeingCaptured = null;
+
+                /*No need to remove event listeners attached to mediaRecorder as
+                If a DOM element which is removed is reference-free (no references pointing to it), the element itself is picked
+                up by the garbage collector as well as any event handlers/listeners associated with it.
+                getEventListeners(audioRecorder.mediaRecorder) will return an empty array of events.*/
+            }
+        }
+
+
+        // Start Loading Bar
+        function startLoading() {
+            const loadingBar = document.getElementById('loadingBar');
+            loadingBar.style.transition = 'width 6s linear'; // Set the transition time to 6 seconds
+
+            // Start loading by setting the width of the loading bar to 100%
+            loadingBar.style.width = '100%';
+
+            // Reset the loading bar after 6 seconds
+            setTimeout(() => {
+                clearLoading();
+            }, 6000); // 6 seconds in milliseconds
+        }
+
+        // Clear Loading Bar
+        function clearLoading() {
+            const loadingBar = document.getElementById('loadingBar');
+            loadingBar.style.transition = 'none'; // Remove transition effect
+            loadingBar.style.width = '0'; // Set width to 0 to clear the loading bar immediately
+        }
+
+    </script>
+</body>
+
+</html>
